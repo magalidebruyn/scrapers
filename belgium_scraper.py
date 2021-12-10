@@ -49,10 +49,11 @@ COUNTRY = 'Belgium'
 LANGUAGES = {'french': 'Français', 'dutch': 'Nederlands', 'german': 'Deutsch'}
 
 
-### Fake user agent to bypass anti-robot walls
+# Create fake user agent to bypass anti-robot walls
 FAKE_USER_AGENT = 'Mozilla/5.0 (Windows NT 4.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2049.0 Safari/537.36'
 
-### REUSABLE CODE
+### GENERALIZABLE CODE
+### Can be reused for other countries' websites
 
 class ChromeBot:
     def __init__(self, headless=False):
@@ -89,39 +90,8 @@ class ChromeBot:
         except IndexError:
             print('FAILED: Chrome bot could not find specified xpath.')
 
-    def find_class(self, class_name):
-        try:
-            return self.driver.find_elements(By.CLASS_NAME, class_name)
-        except IndexError:
-            print('FAILED: Chrome bot could not find elements of that class: {class_name}.')
-
-    def find_id(self, id_name):
-        try:
-            return self.driver.find_elements(By.ID, id_name)
-        except IndexError:
-            print('FAILED: Chrome bot could not find elements with that id: {id_name}.')
-
-    def find_tag(self, tag_name):
-        try:
-            return self.driver.find_elements(By.TAG_NAME, tag_name)
-        except IndexError:
-            print('FAILED: Chrome bot could not find elements with that tag name: {tag_name}.')
-
     def get_html(self):
         return self.driver.page_source
-
-    def window_handles(self, tab_id):
-        tab = self.driver.window_handles[tab_id]
-        print(tab)
-        return tab
-
-    def switch_to_window(self, tab):
-        self.driver.switch_to.window(tab)
-
-    def switch_to_tab(self, tab_id):
-        tab = self.driver.window_handles[tab_id]
-        self.driver.switch_to.window(tab)
-        print(tab)
 
     def switch_to_default(self):
         self.driver.switch_to.default_content()
@@ -152,14 +122,6 @@ def create_destination_file(title: str, type: str, language: str):
         return
     return html_destination_file
 
-
-def write_response(response, destination_file):
-    with open(destination_file, 'w') as file:
-        for chunk in response.iter_content(1024 * 1024):
-            file.write(chunk)
-    print("Saved file as binary.")
-
-
 def append_to_metadata(law_name: str, pdf_link: str, filename: str, language: str):
     """Appends an item to the METADATA list."""
     METADATA.append({'title': law_name,
@@ -179,7 +141,8 @@ def write_metadata_json():
     print('\nWrote metadata to JSON.')
 
 
-### COUNTRY-SPECIFIC CODE (here, Belgium; from www.ejustice.just.fgov.be)
+### COUNTRY-SPECIFIC CODE
+### For Belgium: from www.ejustice.just.fgov.be
 
 def scrape_belgium_laws(headless=True):
     """Scrapes all Belgian laws from www.ejustice.just.fgov.be"""
@@ -258,7 +221,7 @@ def scrape_belgium_laws(headless=True):
         # Write all metadata to JSON
         write_metadata_json()
 
-    print('\nCode finished running!!!\n')
+    print('\nCode finished running!\n')
 
 if __name__ == '__main__':
     scrape_belgium_laws(headless=True)
