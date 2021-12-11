@@ -96,31 +96,28 @@ class ChromeBot:
     def switch_to_default(self):
         self.driver.switch_to.default_content()
 
-    def switch_to_frame(self, frame):
+    def switch_to_frame(self, frame_xpath: str):
+        frame = self.driver.find_element(By.XPATH, frame_xpath)
         self.driver.switch_to.frame(frame)
 
     def wait_sec(self, time_sec):
         self.driver.implicitly_wait(time_sec)
 
-
-def filename_maker(law_name: str) -> str:
-    """Returns a lowercase, 250 characters max version of law_name
-    to be used as filename (also, removes special characters)."""
-    return re.sub(' ', '-', re.sub('\W+',' ', law_name)).lower()[:250]
-
-def generate_file_name(law_name: str, type: str, language: str) -> str:
-    title = filename_maker(law_name)
-    return DOWNLOAD_PATH + language + '/' + type + '/' + title + '.' + type
-
-def create_destination_file(title: str, type: str, language: str):
-    html_destination_file = os.path.join(
-        os.path.dirname(__file__),
-        generate_file_name(title, type, language)
-    )
-    if path.exists(html_destination_file):
-        print(html_destination_file + " already downloaded")
+def create_destination_file(law_name: str, law_text: str, type: str, language: str):
+    # Shorten and format the title and first words
+    title = re.sub(' ', '-', re.sub('\W+',' ', law_name)).lower()[:200]
+    ## Some files have the same title but are in fact different laws!
+    ## i.e. the content is different. Hence, adding words from the text
+    ## to differentiate titles & laws
+    first_words = re.sub(' ', '-', re.sub('\W+',' ', law_text)).lower()[:50]
+    # Create the path by combining relevant variables
+    file_path = DOWNLOAD_PATH + language + '/' + type + '/' + title + first_words + '.' + type
+    destination_file = os.path.join( os.path.dirname(__file__), file_path)
+    # Check that the file does not already exist
+    if path.exists(destination_file):
+        print(destination_file + " is already downloaded. Not re-downloading.")
         return
-    return html_destination_file
+    return destination_file
 
 def append_to_metadata(law_name: str, pdf_link: str, filename: str, language: str):
     """Appends an item to the METADATA list."""
@@ -147,17 +144,17 @@ def write_metadata_json():
 def scrape_belgium_laws(headless=True):
     """Scrapes all Belgian laws from www.ejustice.just.fgov.be"""
 
-    # Initialize Selenium Chrome bot and navigate to start url
+    # Initialize Selenium Chrome bot
     bot = ChromeBot(headless)
-    bot.navigate_to(START_URL)
-    bot.wait_sec(5)
 
     # Each law page (and corresponding file) has the same source url
     # i.e. each law page is only accessible via navigation from the start url
     # not directly
     file_source_url = 'www.ejustice.just.fgov.be/cgi/article.pl'
 
-    for language in list(languages):
+    for language in list(LANGUAGES):
+        # Navigate to start url
+        bot.navigate_to(START_URL)
         # Access language button & corresponding laws listing page
         # Access XPath
         laws_list_link = bot.find_xpath_solo("//input[@type='Submit' and @value='{}']".format(LANGUAGES.get(language))) # dynamic XPath
@@ -167,60 +164,83 @@ def scrape_belgium_laws(headless=True):
         # Click on button
         laws_list_link.click()
 
-        # Access & collect link to each law on the page
-        # Switch to frame
-        frame1 = bot.find_xpath_solo("/html/frameset/frame[2]")
-        bot.switch_to_frame(frame1)
-        all_links = bot.find_xpath("//input[@type='submit' and @name='numac']")
+        # Get button for next (older) listing page
+        # Switch to frame in which its located
+        bot.switch_to_frame("//frame[@name='Foot']")
+        # Access button
+        button_next = bot.find_xpath_solo("//input[@type='Submit' and @value='Sommaire précédent' or @value='Vorige Inhoud' or @value='Voriger Inhalt']")
+        next_failure = 0
+        bot.switch_to_default()
+        # Keep track of total laws and listing pages
+        listings_num = 0
+        laws_ttl = 0
 
-        print(f'Laws to download on the page: {len(all_links)}\n')
-
-        # Iterate over all download links; click on it, scrape the law, come back to previous page
-        for i in range(0, len(all_links)):
-            # Click on law, access page
-            all_links[i].click()
-            # Switch to frame containing heading/title
-            frame2 = bot.find_xpath_solo("/html/frameset/frame[2]")
-            bot.switch_to_frame(frame2)
-            # Get title
-            law_title = bot.find_xpath_solo("/html/body/h3/center/u").text
-            print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
-
-            # Write text file
-            # Get html text
-            text_html = bot.get_html()
-            # Use Beautiful Soup to get Unicode string
-            soup = BeautifulSoup(text_html, features="html.parser")
-            text_soup = soup.get_text()
-            # Create file
-            destination_file = create_destination_file(law_title, 'txt', language)
-            if destination_file is not None:
-                with open(destination_file, 'w') as file:
-                    file.write(text_soup)
-                # Add entry metadata for this law
-                append_to_metadata(law_title, file_source_url, destination_file, language)
-
-            # Exit frame and go back to listing
-            bot.switch_to_default()
-            frame3 = bot.find_xpath_solo("/html/frameset/frame[3]")
-            bot.switch_to_frame(frame3)
-            # Click button to go back to menu
-            button_back = bot.find_xpath_solo("/html/body/table/tbody/tr/td[4]/form/input[5]")
-            button_back.click()
+        # Iterate through all the listing pages for this language
+        while next_failure <= 5: # for i in range(3): # Next listing page is available
+            # Access & collect link to each law on the page
             # Switch to frame
-            bot.switch_to_default()
-            frame1 = bot.find_xpath_solo("/html/frameset/frame[2]")
-            bot.switch_to_frame(frame1)
-            bot.wait_sec(1)
-            # Recollect all links
-            # Apparently necessary because otherwise not recognize link
-            # ! TODO (during winter break): REFACTOR this loop
-            # to make less computationally repetitive and expensive
-            all_links = bot.find_xpath("//input[@type='submit' and @name='numac']")
+            listings_num += 1
+            print(f'\nOn the listing page number {listings_num}')
 
-        # Write all metadata to JSON
-        write_metadata_json()
+            try:
+                bot.switch_to_frame("//frame[@name='Body']")
+                all_links = bot.find_xpath("//input[@type='submit' and @name='numac']")
+                laws_ttl = laws_ttl + listings_num*len(all_links)
+                print(f'{laws_ttl} laws discovered so far in total')
+                print(f'\nLaws to download on the page: {len(all_links)}\n')
 
+                # Iterate over all download links; click on it, scrape the law, come back to previous page
+                for i in range(len(all_links)): # For testing purposes, use: range(0, 1):
+                    # Click on law, access page
+                    all_links[i].click()
+                    # Switch to frame containing heading/title
+                    bot.switch_to_frame("//frame[@name='Body']")
+                    # Get title
+                    law_title = bot.find_xpath_solo("/html/body/h3/center/u").text
+                    # Display law
+                    print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
+                    # Write text file
+                    # Get html text
+                    text_html = bot.get_html()
+                    # Use Beautiful Soup to get Unicode string
+                    soup = BeautifulSoup(text_html, features="html.parser")
+                    text_soup = soup.get_text()
+                    # Display what it's about
+                    content_extract = text_soup[300:500]
+                    print('It is about: ', content_extract)
+                    # Create file
+                    destination_file = create_destination_file(law_title, content_extract, 'txt', language)
+                    if destination_file is not None:
+                        with open(destination_file, 'w') as file:
+                            file.write(text_soup)
+                        # Add entry metadata for this law
+                        append_to_metadata(law_title, file_source_url, destination_file, language)
+
+                    # Exit frame and go back to listing
+                    bot.switch_to_default()
+                    bot.switch_to_frame("//frame[@name='Foot']")
+                    # Click button to go back to listing
+                    button_back = bot.find_xpath_solo("/html/body/table/tbody/tr/td[4]/form/input[5]")
+                    button_back.click()
+                    # Switch to listing frame
+                    bot.switch_to_default()
+                    bot.switch_to_frame("//frame[@name='Body']")
+                    # Recollect all links
+                    all_links = bot.find_xpath("//input[@type='submit' and @name='numac']")
+            except:
+                next_failure += 1
+                print("\nNo laws on this listing page. Moving on to the next.\n")
+            # Go to next listing page - click button
+            try:
+                bot.switch_to_default()
+                bot.switch_to_frame("//frame[@name='Foot']")
+                button_next = bot.find_xpath_solo("//input[@type='Submit' and @value='Sommaire précédent' or @value='Vorige Inhoud' or @value='Voriger Inhalt']")
+                button_next.click()
+            except:
+                next_failure = 6 # i.e. break
+    # Write all metadata to JSON
+    write_metadata_json()
+    print(f'{laws_tl} laws discovered in total')
     print('\nCode finished running!\n')
 
 if __name__ == '__main__':
