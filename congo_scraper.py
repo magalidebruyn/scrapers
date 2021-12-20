@@ -196,11 +196,11 @@ def scrape_drc_laws(headless=True):
                 # Check if file was already downloaded
                 if destination_file is not None:  # Unless file was already downloaded
                     # Get HTML response (pdf content)
-                    print("GOING TO:", file_source_url)
-                    response = requests.get(file_source_url)
+                    response = requests.get(file_source_url, stream=True)
                     # Write response as binary file
                     with open(destination_file, 'wb') as f:
-                        f.write(response.content)
+                        for chunk in response.iter_content(1024 * 1024):
+                            f.write(chunk)
                     # Add entry to metadata
                     append_to_metadata(law_title, file_source_url, destination_file)
             else: # If it's not a PDF, it's a HTML page (on this website)
