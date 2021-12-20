@@ -1,15 +1,15 @@
 """
-Web scraper for downloading laws as files from
+Web scraper for downloading laws as HMTL files from
 http://www.ejustice.just.fgov.be/cgi/summary.pl
 - the national law repository of Belgium -
 using a Selenium Chrome bot.
 
-Author: Magali de Bruyn
-Updated: December 13, 2021
-
 Fun fact: this official website from the Belgian government seems to have been
 created in 2002... or earlier! And it doesn't look like it's been revamped since then -
 it shows both in its design and code!
+
+Author: Magali de Bruyn
+Updated: December 20, 2021
 """
 
 ## Install libraries through console
@@ -70,7 +70,7 @@ class ChromeBot:
         options.add_experimental_option("prefs", profile)
         s = Service("./chromedriver")
         self.driver = webdriver.Chrome(service=s, options=options)
-        print('Chrome bot initialized!')
+        print('\nChrome bot initialized!')
 
     def navigate_to(self, url):
         try:
@@ -104,18 +104,18 @@ class ChromeBot:
     def wait_sec(self, time_sec):
         self.driver.implicitly_wait(time_sec)
 
-def create_destination_file(law_name: str, law_text: str, type: str, language: str):
+def create_destination_file(law_name: str = 'Untitled', law_text: str = '', type: str = 'txt', language: str = 'french'):
     """
-    Create a name for the file based on title and content and define a path.
+    Define a name and file path for any law based on title, content, and desired file type
     """
     # Shorten and format the title and first words
     title = re.sub(' ', '-', re.sub('\W+',' ', law_name)).lower()[:200]
     ## Some files have the same title but are in fact different laws!
     ## i.e. the content is different. Hence, adding words from the law's text
     ## to differentiate titles & laws
-    first_words = re.sub(' ', '-', re.sub('\W+',' ', law_text)).lower()[:50]
+    law_text = re.sub(' ', '-', re.sub('\W+',' ', law_text)).lower()[:50]
     # Create the path by combining relevant variables
-    file_path = DOWNLOAD_PATH + language + '/' + type + '/' + title + first_words + '.' + type
+    file_path = DOWNLOAD_PATH + language + '/' + type + '/' + title + law_text + '.' + type
     destination_file = os.path.join( os.path.dirname(__file__), file_path)
     # Check that the file does not already exist
     if path.exists(destination_file):
@@ -137,8 +137,8 @@ def write_metadata_json():
     """Write the metadata to a json file."""
     dirname = os.path.dirname(__file__)
     metadata_path = os.path.join(dirname, METADATA_PATH)
-    with open(metadata_path, 'w') as file:
-        json.dump(METADATA, file)
+    with open(metadata_path, 'w') as f:
+        json.dump(METADATA, f)
     print('\nWrote metadata to JSON.')
 
 
@@ -153,7 +153,7 @@ def scrape_belgium_laws(headless=True):
 
     # Each law page (and corresponding file) has the same source url
     # i.e. each law page is only accessible via navigation from the start url
-    # not directly
+    # not directly (on this website)
     file_source_url = 'www.ejustice.just.fgov.be/cgi/article.pl'
 
     for language in list(LANGUAGES):
@@ -168,21 +168,14 @@ def scrape_belgium_laws(headless=True):
             return
         # Click on button
         laws_list_link.click()
-
-        # Get button for next (older) listing page
-        # Switch to frame in which its located
-        bot.switch_to_frame("//frame[@name='Foot']")
-        # Access button
-        button_next = bot.find_xpath_solo("//input[@type='Submit' and @value='Sommaire précédent' or @value='Vorige Inhoud' or @value='Voriger Inhalt']")
-        next_failure = 0
-        bot.switch_to_default()
         # Keep track of total laws and listing pages
         laws_ttl = 0
         listings_num = 0
         # Initialize IDs (use proxy - their date) of listing pages
         this_page = '.'
         old_page = ''
-
+        # Switch to main frame for later navigation
+        bot.switch_to_default()
 
         # Iterate through all the listing pages for this language
         while this_page != old_page: # Next listing page is available
@@ -206,7 +199,7 @@ def scrape_belgium_laws(headless=True):
                     bot.switch_to_frame("//frame[@name='Body']")
                     # Get title
                     law_title = bot.find_xpath_solo("/html/body/h3/center/u").text
-                    # Display law
+                    # Announce law
                     print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
                     # Write text file
                     # Get html text
@@ -218,10 +211,10 @@ def scrape_belgium_laws(headless=True):
                     content_extract = text_soup[300:500]
                     print('It is about: ', content_extract)
                     # Create file
-                    destination_file = create_destination_file(law_title, content_extract, 'txt', language)
+                    destination_file = create_destination_file(law_name=law_title, law_text=content_extract, type='txt', language=language)
                     if destination_file is not None:
-                        with open(destination_file, 'w') as file:
-                            file.write(text_soup)
+                        with open(destination_file, 'w') as f:
+                            f.write(text_soup)
                         # Add entry metadata for this law
                         append_to_metadata(law_title, file_source_url, destination_file, language)
 
@@ -237,10 +230,9 @@ def scrape_belgium_laws(headless=True):
                     # Recollect all links
                     all_links = bot.find_xpath("//input[@type='submit' and @name='numac']")
             except:
-                next_failure += 1
-                print("\nNo laws on this listing page. Moving on to the next.\n")
+               print("\nNo laws accessible on this listing page. Moving on to the next.\n")
             try:
-            # Go to next listing page - click button
+                # Go to next listing page - click button
                 bot.switch_to_default()
                 bot.switch_to_frame("//frame[@name='Foot']")
                 # Get date of this listing page (also found in the footer)
@@ -251,11 +243,11 @@ def scrape_belgium_laws(headless=True):
                 button_next = bot.find_xpath_solo("//input[@type='Submit' and @value='Sommaire précédent' or @value='Vorige Inhoud' or @value='Voriger Inhalt']")
                 button_next.click()
             except:
-                print("No next page could be accessed.")
-                break
+               print("No next page could be accessed.")
+               break
     # Write all metadata to JSON
     write_metadata_json()
-    print(f'{laws_ttl} laws discovered in total')
+    print(f'\n{laws_ttl} laws discovered in total')
     print('\nCode finished running!\n')
 
 if __name__ == '__main__':
