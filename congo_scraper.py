@@ -1,5 +1,5 @@
 """
-Web scraper for downloading laws as HtML & PDF files from
+Web scraper for downloading laws as HTML & PDF files from
 http://www.leganet.cd/JO.htm
 - the national law repository of the Democratic Republic of the Congo (DRC) -
 using a Selenium Chrome bot.
@@ -54,15 +54,16 @@ FAKE_USER_AGENT = 'Mozilla/5.0 (Windows NT 4.0; WOW64) AppleWebKit/537.36 (KHTML
 class ChromeBot:
     def __init__(self, headless=False):
         options = Options()
-        options.headless = headless # Doesn't open a browser window
+        # options.headless = headless # Doesn't open a browser window
         options.add_argument(f'user-agent={FAKE_USER_AGENT}')
-         # Add custom profile to disactivate PDF viewer
+        # Add custom profile to download PDF files
         profile = {
-                "plugins.plugins_list": [{"enabled": False,
-                                         "name": "Chrome PDF Viewer"}],
+            'download.default_directory': f'{DOWNLOAD_PATH}/pdf',
+            "download.prompt_for_download": False, # Auto download the file
+            "download.directory_upgrade": True,
+            # "plugins.always_open_pdf_externally": True # Do not show PDF directly in chrome
         }
         options.add_experimental_option("prefs", profile)
-
         s = Service("./chromedriver")
         self.driver = webdriver.Chrome(service=s, options=options)
         print('\nChrome bot initialized!')
@@ -111,14 +112,14 @@ def create_destination_file(law_name: str, law_text: str = '', type: str = 'txt'
     Define a name and file path for any law based on title, content, and desired file type
     """
     # Shorten and format the title and sample text
-    title = re.sub(' ', '-', re.sub('\W+',' ', law_name)).lower()[:200]
+    title = re.sub(' ', '-', re.sub('\W+',' ', law_name+law_text)).lower()[:250]
     ## Some files have the same title but are in fact different laws!
     ## i.e. the content is different. Hence, adding words from the law's text
     ## to differentiate titles & laws
-    law_text = re.sub(' ', '-', re.sub('\W+',' ', law_text)).lower()[:50]
     # Create the path by combining relevant variables
-    file_path = DOWNLOAD_PATH + language + '/' + type + '/' + title + law_text + '.' + type
+    file_path = DOWNLOAD_PATH + language + '/' + type + '/' + title + '.' + type
     destination_file = os.path.join(os.path.dirname(__file__), file_path)
+    print("DOWNLOADING: ", destination_file)
     # Check that the file does not already exist
     if path.exists(destination_file):
         print(destination_file + " is already downloaded. Not re-downloading.")
@@ -174,87 +175,93 @@ def scrape_drc_laws(headless=True):
     print(f'{laws_ttl} laws discovered so far in total')
 
     # Iterate over all download links; click on it, scrape the law, come back to previous page
-    for i in range(len(all_links)): # len(all_links) # For testing purposes, use: range(0, 1); otherwise: len(all_links)
+    for i in range(len(all_links)-5, len(all_links)): # len(all_links) # For testing purposes, use: range(0, 1); otherwise: len(all_links)
+        # try:
+        # Click on law, access page
+        all_links[i].click()
+        # Switch (bot) to tab containing the law
+        bot.wait_sec(5)
+        bot.switch_to_tab(1)
+        # Get url of page
+        # file_source_url = bot.get_url()
+        # Some of the links lead to PDFs, some to html files - not consistent
+        ## Treating them seperably
+        # if 'pdf' in file_source_url: # If it's a PDF link
+        #     # Get PDF title from url path through parsing
+        #     pdf_path = urlparse(file_source_url).path
+        #     law_title = os.path.splitext(pdf_path)[0][1:]
+        #     # Announce law
+        #     print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
+        #     # Create destination file from law title name
+        #     destination_file = create_destination_file(law_name=law_title, type='pdf', language=language)
+        #     # Check if file was already downloaded
+        #     if destination_file is not None:  # Unless file was already downloaded
+        #         # Get HTML response (pdf content)
+        #         response = requests.get(file_source_url, stream=True)
+        #         # Write response as binary file
+        #         with open(destination_file, 'wb') as f:
+        #             # for chunk in response.iter_content(1024 * 1024):
+        #             #     f.write(chunk)
+        #             f.write(response.content)
+        #         # Add entry to metadata
+        #         append_to_metadata(law_title, file_source_url, destination_file)
+        # else: # If it's not a PDF, it's a HTML page (on this website)
         try:
-            # Click on law, access page
-            all_links[i].click()
-            # Switch (bot) to tab containing the law
-            bot.wait_sec(5)
-            bot.switch_to_tab(1)
-            # Get url of page
             file_source_url = bot.get_url()
-            # Some of the links lead to PDFs, some to html files - not consistent
-            ## Treating them seperably
-            if 'pdf' in file_source_url: # If it's a PDF link
-                # Get PDF title from url path through parsing
-                pdf_path = urlparse(file_source_url).path
-                law_title = os.path.splitext(pdf_path)[0]
-                # Announce law
-                print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
-                # Create destination file from law title name
-                destination_file = create_destination_file(law_name=law_title, type='pdf', language=language)
-                # Check if file was already downloaded
-                if destination_file is not None:  # Unless file was already downloaded
-                    # Get HTML response (pdf content)
-                    response = requests.get(file_source_url, stream=True)
-                    # Write response as binary file
-                    with open(destination_file, 'wb') as f:
-                        for chunk in response.iter_content(1024 * 1024):
-                            f.write(chunk)
-                    # Add entry to metadata
-                    append_to_metadata(law_title, file_source_url, destination_file)
-            else: # If it's not a PDF, it's a HTML page (on this website)
-                # Get title
-                ## Titles are not consistently formatted across html pages
-                ## so trying different XPaths
-                ## If none of these work, the link is probably broken (404 error)-
-                ## a handful of them are, unfortunately
-                continue_cond = True
+            # Get title
+            ## Titles are not consistently formatted across html pages
+            ## so trying different XPaths
+            ## If none of these work, the link is probably broken (404 error)-
+            ## a handful of them are, unfortunately
+            continue_cond = True
+            try:
+                law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/p[1]").text[0:250]
+            except:
                 try:
-                    law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/p[1]").text[0:250]
+                    law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/span[1]/p").text[0:250]
                 except:
                     try:
-                        law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/span[1]/p").text[0:250]
+                        law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/div[1]/dl[1]").text[0:250]
                     except:
                         try:
-                            law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/div[1]/dl[1]").text[0:250]
+                            law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/dl/dt[1]").text[0:250]
                         except:
                             try:
-                                law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/dl/dt[1]").text[0:250]
+                                law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/font[1]/b/p").text[0:250]
                             except:
-                                try:
-                                    law_title = bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]/font[1]/b/p").text[0:250]
-                                except:
-                                    print(f"\nThe link for this law is probably broken (404 error). You can check manually using the law's link: {file_source_url}")
-                                    continue_cond = False
-                if continue_cond:
-                    # Announce law
-                    print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
-                    # Get box with text
-                    bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]") #//td[@valign='top']")
-                    # Get html text
-                    text_html = bot.get_html()
-                    # Use Beautiful Soup to get Unicode string
-                    soup = BeautifulSoup(text_html, features="html.parser")
-                    text_soup = soup.get_text()
-                    # Display what it's about
-                    content_extract = text_soup[300:500]
-                    # Create file
-                    destination_file = create_destination_file(law_title, content_extract, 'txt', language)
-                    # Check if file was already downloaded
-                    if destination_file is not None:
-                        # Write text file
-                        with open(destination_file, 'w') as f:
-                            f.write(text_soup)
-                        # Add entry metadata for this law
-                        append_to_metadata(law_title, file_source_url, destination_file, language)
-            # Close active tab and move on
-            bot.wait_sec(2)
-            bot.driver.close()
-            bot.switch_to_tab(0)
-            bot.wait_sec(1)
+                                print(f"\nThe link for this law is probably broken (404 error). You can check manually using the law's link: {file_source_url}")
+                                continue_cond = False
+            if continue_cond:
+                # Announce law
+                print(f'\nFound law ({i+1}/{len(all_links)}): ', law_title)
+                # Get box with text
+                bot.find_xpath_solo("/html/body/table[2]/tbody/tr/td[3]") #//td[@valign='top']")
+                # Get html text
+                text_html = bot.get_html()
+                # Use Beautiful Soup to get Unicode string
+                soup = BeautifulSoup(text_html, features="html.parser")
+                text_soup = soup.get_text()
+                text_mid = round(len(text_soup)/2)
+                # Display what it's about
+                content_extract = text_soup[text_mid:text_mid+250]
+                # Create file
+                destination_file = create_destination_file(law_title, content_extract, 'txt', language)
+                # Check if file was already downloaded
+                if destination_file is not None:
+                    # Write text file
+                    with open(destination_file, 'w') as f:
+                        f.write(text_soup)
+                    # Add entry metadata for this law
+                    append_to_metadata(law_title, file_source_url, destination_file, language)
         except:
-            print("\nCould not access the link.")
+            pass
+        # Close active tab and move on
+        bot.wait_sec(2)
+        bot.driver.close()
+        bot.switch_to_tab(0)
+        bot.wait_sec(1)
+        # except:
+        #     print("\nCould not access the link.")
 
     # Write all metadata to JSON
     write_metadata_json()
