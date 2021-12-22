@@ -5,7 +5,7 @@ http://www.leganet.cd/JO.htm
 using a Selenium Chrome bot.
 
 Author: Magali de Bruyn
-Updated: December 22, 2021
+Updated: December 20, 2021
 """
 
 ## Install libraries through console
@@ -61,7 +61,7 @@ class ChromeBot:
         options.add_argument(f'user-agent={FAKE_USER_AGENT}')
         # Specify chromedriver location
         s = Service("./chromedriver")
-        # Define driver with above specifications
+        # Define driver with above specifications 
         self.driver = webdriver.Chrome(service=s, options=options)
         print('\nChrome bot initialized!')
 
